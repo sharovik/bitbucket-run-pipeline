@@ -1,6 +1,8 @@
 # BitBucket run pipeline
 Event which can run specific **custom** pipeline, selected in the message.
 
+This is event for [sharovik/devbot](https://github.com/sharovik/devbot) automation bot.
+
 ## Table of contents
 - [How it works](#how-it-works)
 - [Prerequisites](#prerequisites)
