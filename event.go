@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -96,6 +97,28 @@ func (e BbRunPipelineEvent) Execute(message dto.SlackRequestChatPostMessage) (dt
 
 	buildUrl := fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
 	message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildUrl)
+
+	if container.C.Config.BitBucketConfig.ReleaseChannelMessageEnabled && container.C.Config.BitBucketConfig.ReleaseChannel != "" {
+		log.Logger().Debug().
+			Str("channel", container.C.Config.BitBucketConfig.ReleaseChannel).
+			Msg("Send release-confirmation message")
+
+		response, statusCode, err := container.C.SlackClient.SendMessage(dto.SlackRequestChatPostMessage{
+			Channel:           container.C.Config.BitBucketConfig.ReleaseChannel,
+			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, receivedPullRequest.Branch, buildUrl),
+			AsUser:            true,
+			Ts:                time.Time{},
+			DictionaryMessage: dto.DictionaryMessage{},
+			OriginalMessage:   dto.SlackResponseEventMessage{},
+		})
+
+		if err != nil {
+			log.Logger().AddError(err).
+				Interface("response", response).
+				Interface("status", statusCode).
+				Msg("Failed to sent answer message")
+		}
+	}
 
 	return message, nil
 }
