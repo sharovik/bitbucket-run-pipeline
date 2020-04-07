@@ -2,8 +2,15 @@
 Event which can run specific **custom** pipeline, selected in the message.
 
 ## Table of contents
+- [How it works](#how-it-works)
 - [Prerequisites](#prerequisites)
-- [Usage](#usage)
+
+## How it works
+Write in PM or tag the bot user with this message
+```
+Start {you-custom-pipeline-name} for http://pull-request.link
+```
+The bot will try to run the pipeline for the branch in selected pull-request and will send you the link to the pipeline status page
 
 ## Prerequisites
 Before you will start use this event please be aware of these steps
@@ -28,26 +35,4 @@ DefinedEvents.Events[bitbucket_run_pipeline.EventName] = bitbucket_run_pipeline.
 Copy and paste everything from the **#Bitbucket** section in `.env.example` file into `.env` file
 
 ### Create BitBucket client
-For this you need to do the following steps:
-1. Go to your profile settings in bitbucket.org
-2. Under the **ACCESS MANAGEMENT** section you will find `OAuth`, please go there
-3. In the OAuth page you will find `OAuth consumers`. Please add new consumer with the following checked permissions:
-- Pull requests: Read, Write
-- Repositories: Read, Write
-- Pipelines: Read
-And also please mark this consumer as "Private".
-See example of the filled form:
-![Add consumer form](documentation/images/bitbucket-consumer-add-form.png)
-
-4. After form submit you will receive the client credentials, please use them to fill these attributes in your `.env` file:
-```
-BITBUCKET_CLIENT_ID=
-BITBUCKET_CLIENT_SECRET=
-```
-
-## Usage
-Write in PM or tag the bot user with this message
-```
-Start {you-custom-pipeline-name}
-```
-You will receive in answer the pipeline, which has been triggered and where you can see the status of that pipeline
+Here [you can find how to do it](https://github.com/sharovik/devbot/blob/master/documentation/bitbucket_client_configuration.md).
