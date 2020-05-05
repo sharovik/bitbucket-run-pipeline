@@ -42,8 +42,8 @@ func TestBbRunPipelineEvent_Execute(t *testing.T) {
 		},
 	}
 
-	var msg = dto.SlackRequestChatPostMessage{
-		OriginalMessage: dto.SlackResponseEventMessage{
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
 			Text: `start staging-deploy https://bitbucket.org/john/test-repo/pull-requests/1/testing-pr-flow`,
 		},
 	}
@@ -63,8 +63,8 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequestAndPipeline(t *testing.T) {
 		RunPipelineError: errors.New("Bad pipeline response"),
 	}
 
-	var msg = dto.SlackRequestChatPostMessage{
-		OriginalMessage: dto.SlackResponseEventMessage{
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
 			Text: `start`,
 		},
 	}
@@ -84,8 +84,8 @@ func TestBbRunPipelineEvent_ExecuteNoPipeline(t *testing.T) {
 		RunPipelineError: errors.New("Bad pipeline response"),
 	}
 
-	var msg = dto.SlackRequestChatPostMessage{
-		OriginalMessage: dto.SlackResponseEventMessage{
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
 			Text: `start https://bitbucket.org/john/test-repo/pull-requests/1/testing-pr-flow`,
 		},
 	}
@@ -105,8 +105,8 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequest(t *testing.T) {
 		RunPipelineError: errors.New("Bad pipeline response"),
 	}
 
-	var msg = dto.SlackRequestChatPostMessage{
-		OriginalMessage: dto.SlackResponseEventMessage{
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
 			Text: `start test`,
 		},
 	}
@@ -126,8 +126,8 @@ func TestBbRunPipelineEvent_ExecuteBadPullRequestLink(t *testing.T) {
 		RunPipelineError: errors.New("Bad pipeline response"),
 	}
 
-	var msg = dto.SlackRequestChatPostMessage{
-		OriginalMessage: dto.SlackResponseEventMessage{
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
 			Text: `start deploy https://bitbucket.org/john/test-repo/pull-requests/test/testing-pr-flow`,
 		},
 	}

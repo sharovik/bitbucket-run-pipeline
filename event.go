@@ -49,7 +49,7 @@ var Event = BbRunPipelineEvent{
 }
 
 //Execute method which is called by message processor
-func (e BbRunPipelineEvent) Execute(message dto.SlackRequestChatPostMessage) (dto.SlackRequestChatPostMessage, error) {
+func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMessage, error) {
 	pipeline, receivedPullRequest, err := extractPullRequestFromSubject(pullRequestsRegex, message.OriginalMessage.Text)
 	if err != nil {
 		message.Text = "Failed to extract the data from your message"
