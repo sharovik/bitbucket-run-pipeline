@@ -139,3 +139,22 @@ func TestBbRunPipelineEvent_ExecuteBadPullRequestLink(t *testing.T) {
 	expectedText := "Failed to extract the data from your message"
 	assert.Equal(t, expectedText, answer.Text)
 }
+
+func TestBbRunPipelineEvent_ExecuteHelp(t *testing.T) {
+	//PullRequest status OPEN but no participants
+	container.C.BibBucketClient = &mock.MockedBitBucketClient{
+		IsTokenInvalid:       true,
+		PullRequestInfoError: errors.New("Bad pull-request info response "),
+		RunPipelineError:     errors.New("Bad pipeline response"),
+	}
+
+	var msg = dto.BaseChatMessage{
+		OriginalMessage: dto.BaseOriginalMessage{
+			Text: `start --help`,
+		},
+	}
+
+	answer, err := Event.Execute(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, helpMessage, answer.Text)
+}

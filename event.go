@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharovik/devbot/internal/helper"
+
 	"github.com/sharovik/devbot/internal/container"
 	"github.com/sharovik/devbot/internal/dto"
 	"github.com/sharovik/devbot/internal/log"
@@ -21,6 +23,8 @@ const (
 	EventVersion         = "1.0.0"
 	pullRequestsRegex    = `(?im)(start)(?:\s?)(.+)(?:\s?)(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
 	pullRequestStateOpen = "OPEN"
+
+	helpMessage = "Send me message ```start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL}``` to run the pipeline for selected pull-request."
 
 	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
@@ -50,6 +54,16 @@ var Event = BbRunPipelineEvent{
 
 //Execute method which is called by message processor
 func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMessage, error) {
+	isHelpAnswerTriggered, err := helper.HelpMessageShouldBeTriggered(message.OriginalMessage.Text)
+	if err != nil {
+		log.Logger().Warn().Err(err).Msg("Something went wrong with help message parsing")
+	}
+
+	if isHelpAnswerTriggered {
+		message.Text = helpMessage
+		return message, nil
+	}
+
 	pipeline, receivedPullRequest, err := extractPullRequestFromSubject(pullRequestsRegex, message.OriginalMessage.Text)
 	if err != nil {
 		message.Text = "Failed to extract the data from your message"
@@ -128,55 +142,16 @@ func (e BbRunPipelineEvent) Install() error {
 	log.Logger().Debug().
 		Str("event_name", EventName).
 		Str("event_version", EventVersion).
-		Msg("Start event Install")
-	eventID, err := container.C.Dictionary.FindEventByAlias(EventName)
-	if err != nil {
-		log.Logger().AddError(err).Msg("Error during FindEventBy method execution")
-		return err
-	}
+		Msg("Triggered event installation")
 
-	if eventID == 0 {
-		log.Logger().Info().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Msg("Event wasn't installed. Trying to install it")
-
-		eventID, err := container.C.Dictionary.InsertEvent(EventName, EventVersion)
-		if err != nil {
-			log.Logger().AddError(err).Msg("Error during FindEventBy method execution")
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("event_id", eventID).
-			Msg("Event installed")
-
-		scenarioID, err := container.C.Dictionary.InsertScenario(EventName, eventID)
-		if err != nil {
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("scenario_id", scenarioID).
-			Msg("Scenario installed")
-
-		questionID, err := container.C.Dictionary.InsertQuestion("start", "Ok, give me a min", scenarioID, "(?i)(start)", "")
-		if err != nil {
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("question_id", questionID).
-			Msg("Question installed")
-	}
-
-	return nil
+	return container.C.Dictionary.InstallEvent(
+		EventName,           //We specify the event name which will be used for scenario generation
+		EventVersion,        //This will be set during the event creation
+		"start",             //Actual question, which system will wait and which will trigger our event
+		"Ok, give me a min", //Answer which will be used by the bot
+		"(?i)(start)",       //Optional field. This is regular expression which can be used for question parsing.
+		"",                  //Optional field. This is a regex group and it can be used for parsing the match group from the regexp result
+	)
 }
 
 //Update for event update actions
