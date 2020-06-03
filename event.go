@@ -1,15 +1,16 @@
-package bitbucket_run_pipeline
+package bitbucketrunpipeline
 
 import (
 	"errors"
 	"fmt"
-	"github.com/sharovik/devbot/internal/container"
-	"github.com/sharovik/devbot/internal/dto"
-	"github.com/sharovik/devbot/internal/log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sharovik/devbot/internal/container"
+	"github.com/sharovik/devbot/internal/dto"
+	"github.com/sharovik/devbot/internal/log"
 )
 
 const (
@@ -17,15 +18,14 @@ const (
 	EventName = "bitbucket_run_pipeline"
 
 	//EventVersion the version of the event
-	EventVersion = "1.0.0"
+	EventVersion         = "1.0.0"
+	pullRequestsRegex    = `(?im)(start)(?:\s?)(.+)(?:\s?)(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
+	pullRequestStateOpen = "OPEN"
 
-	pullRequestsRegex = `(?im)(start)(?:\s?)(.+)(?:\s?)(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
-	pullRequestStateOpen   = "OPEN"
-
-	pipelineRefTypeBranch = "branch"
+	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
-	pipelineSelectorTypeCustom = "custom"
-	pipelineRegex = `(?i)([a-z_-]+)`
+	pipelineSelectorTypeCustom          = "custom"
+	pipelineRegex                       = `(?i)([a-z_-]+)`
 )
 
 //PullRequest the pull-request item
@@ -80,13 +80,13 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 
 	response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
 		Target: dto.PipelineTarget{
-			RefName:  receivedPullRequest.Branch,
-			RefType:  pipelineRefTypeBranch,
+			RefName: receivedPullRequest.Branch,
+			RefType: pipelineRefTypeBranch,
 			Selector: dto.PipelineTargetSelector{
-				Type: pipelineSelectorTypeCustom,
+				Type:    pipelineSelectorTypeCustom,
 				Pattern: pipeline,
 			},
-			Type:     pipelineTargetTypePipelineRefTarget,
+			Type: pipelineTargetTypePipelineRefTarget,
 		},
 	})
 
@@ -95,8 +95,8 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		return message, err
 	}
 
-	buildUrl := fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
-	message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildUrl)
+	buildURL := fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
+	message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
 
 	if container.C.Config.BitBucketConfig.ReleaseChannelMessageEnabled && container.C.Config.BitBucketConfig.ReleaseChannel != "" {
 		log.Logger().Debug().
@@ -105,7 +105,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 
 		response, statusCode, err := container.C.SlackClient.SendMessage(dto.SlackRequestChatPostMessage{
 			Channel:           container.C.Config.BitBucketConfig.ReleaseChannel,
-			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, receivedPullRequest.Branch, buildUrl),
+			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, receivedPullRequest.Branch, buildURL),
 			AsUser:            true,
 			Ts:                time.Time{},
 			DictionaryMessage: dto.DictionaryMessage{},

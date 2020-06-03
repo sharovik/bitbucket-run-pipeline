@@ -1,16 +1,17 @@
-package bitbucket_run_pipeline
+package bitbucketrunpipeline
 
 import (
 	"errors"
+	"os"
+	"path"
+	"runtime"
+	"testing"
+
 	"github.com/sharovik/devbot/internal/container"
 	"github.com/sharovik/devbot/internal/dto"
 	"github.com/sharovik/devbot/internal/log"
 	mock "github.com/sharovik/devbot/test/mock/client"
 	"github.com/stretchr/testify/assert"
-	"os"
-	"path"
-	"runtime"
-	"testing"
 )
 
 func init() {
@@ -26,9 +27,9 @@ func TestBbRunPipelineEvent_Execute(t *testing.T) {
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
 		IsTokenInvalid: true,
 		PullRequestInfoResponse: dto.BitBucketPullRequestInfoResponse{
-			Title:        "Some title",
-			Description:  "Feature;Some task description;\\(https://some-url.net/browse/error-502\\);JohnDoeProject",
-			State:        pullRequestStateOpen,
+			Title:       "Some title",
+			Description: "Feature;Some task description;\\(https://some-url.net/browse/error-502\\);JohnDoeProject",
+			State:       pullRequestStateOpen,
 			Source: dto.Source{
 				Branch: struct {
 					Name string `json:"name"`
@@ -58,9 +59,9 @@ func TestBbRunPipelineEvent_Execute(t *testing.T) {
 func TestBbRunPipelineEvent_ExecuteNoPullRequestAndPipeline(t *testing.T) {
 	//PullRequest status OPEN but no participants
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid: true,
+		IsTokenInvalid:       true,
 		PullRequestInfoError: errors.New("Bad pull-request info response "),
-		RunPipelineError: errors.New("Bad pipeline response"),
+		RunPipelineError:     errors.New("Bad pipeline response"),
 	}
 
 	var msg = dto.BaseChatMessage{
@@ -79,9 +80,9 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequestAndPipeline(t *testing.T) {
 func TestBbRunPipelineEvent_ExecuteNoPipeline(t *testing.T) {
 	//PullRequest status OPEN but no participants
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid: true,
+		IsTokenInvalid:       true,
 		PullRequestInfoError: errors.New("Bad pull-request info response "),
-		RunPipelineError: errors.New("Bad pipeline response"),
+		RunPipelineError:     errors.New("Bad pipeline response"),
 	}
 
 	var msg = dto.BaseChatMessage{
@@ -100,9 +101,9 @@ func TestBbRunPipelineEvent_ExecuteNoPipeline(t *testing.T) {
 func TestBbRunPipelineEvent_ExecuteNoPullRequest(t *testing.T) {
 	//PullRequest status OPEN but no participants
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid: true,
+		IsTokenInvalid:       true,
 		PullRequestInfoError: errors.New("Bad pull-request info response "),
-		RunPipelineError: errors.New("Bad pipeline response"),
+		RunPipelineError:     errors.New("Bad pipeline response"),
 	}
 
 	var msg = dto.BaseChatMessage{
@@ -121,9 +122,9 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequest(t *testing.T) {
 func TestBbRunPipelineEvent_ExecuteBadPullRequestLink(t *testing.T) {
 	//PullRequest status OPEN but no participants
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid: true,
+		IsTokenInvalid:       true,
 		PullRequestInfoError: errors.New("Bad pull-request info response "),
-		RunPipelineError: errors.New("Bad pipeline response"),
+		RunPipelineError:     errors.New("Bad pipeline response"),
 	}
 
 	var msg = dto.BaseChatMessage{
