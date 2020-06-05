@@ -99,7 +99,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 
 	log.Logger().Info().
 		Str("workspace", container.C.Config.BitBucketConfig.DefaultWorkspace).
-		Str("main_branch", container.C.Config.BitBucketConfig.DefaultWorkspace).
+		Str("main_branch", container.C.Config.BitBucketConfig.DefaultMainBranch).
 		Str("pipeline", pipeline).
 		Interface("pull_request", receivedPullRequest).
 		Str("repository", repository).
@@ -140,7 +140,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 	} else {
 		response, err := container.C.BibBucketClient.RunPipeline(container.C.Config.BitBucketConfig.DefaultWorkspace, repository, dto.BitBucketRequestRunPipeline{
 			Target: dto.PipelineTarget{
-				RefName: receivedPullRequest.Branch,
+				RefName: container.C.Config.BitBucketConfig.DefaultMainBranch,
 				RefType: pipelineRefTypeBranch,
 				Selector: dto.PipelineTargetSelector{
 					Type:    pipelineSelectorTypeCustom,
