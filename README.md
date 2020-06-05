@@ -24,6 +24,13 @@ Also you can use the bot in your custom combination:
 ``` 
 Hey, can you start deploy-to-production for repository test?
 ```
+In case when you use the repository, the default main branch will be used. Please note, that for proper work of that event you might need to set up these environment variables for your configuration:
+``` 
+#This will be used once only repository is selected instead of the pull-request.
+BITBUCKET_DEFAULT_WORKSPACE=your-workspace
+BITBUCKET_DEFAULT_MAIN_BRANCH=master
+```
+
 ## Prerequisites
 Before you will start use this event please be aware of these steps
 

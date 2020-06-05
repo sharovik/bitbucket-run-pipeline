@@ -27,7 +27,7 @@ const (
 
 	pullRequestStateOpen = "OPEN"
 
-	helpMessage = "Send me message ```start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL}``` to run the pipeline for selected pull-request."
+	helpMessage = "Send me message ```start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL}``` to run the pipeline for selected pull-request.\nOr you if you don't have the pull-request, use the repository name. ```start {YOUR_CUSTOM_PIPELINE} repository {YOUR_REPOSITORY_NAME}```. In case when you specify the repository, the default main branch will be used(for example: `master`)."
 
 	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
