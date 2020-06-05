@@ -1,7 +1,6 @@
 package bitbucketrunpipeline
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -20,8 +19,12 @@ const (
 	EventName = "bitbucket_run_pipeline"
 
 	//EventVersion the version of the event
-	EventVersion         = "1.0.0"
-	pullRequestsRegex    = `(?im)(start)(?:\s?)(.+)(?:\s?)(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
+	EventVersion         = "1.0.1"
+
+	initRegex        = `(?im)(start)(?:\s+)([a-z-_]+)`
+	pullRequestRegex = `(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
+	repositoryRegex  = `((?:repository)\s+([a-z-_]+))`
+
 	pullRequestStateOpen = "OPEN"
 
 	helpMessage = "Send me message ```start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL}``` to run the pipeline for selected pull-request."
@@ -29,7 +32,6 @@ const (
 	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
 	pipelineSelectorTypeCustom          = "custom"
-	pipelineRegex                       = `(?i)([a-z_-]+)`
 )
 
 //PullRequest the pull-request item
@@ -47,10 +49,12 @@ type BbRunPipelineEvent struct {
 	EventName string
 }
 
-//Event - object which is ready to use
-var Event = BbRunPipelineEvent{
-	EventName: EventName,
-}
+var (
+	//Event - object which is ready to use
+	Event = BbRunPipelineEvent{
+		EventName: EventName,
+	}
+)
 
 //Execute method which is called by message processor
 func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMessage, error) {
@@ -64,53 +68,96 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		return message, nil
 	}
 
-	pipeline, receivedPullRequest, err := extractPullRequestFromSubject(pullRequestsRegex, message.OriginalMessage.Text)
+	matches, err := compileRegex(message.OriginalMessage.Text)
 	if err != nil {
-		message.Text = "Failed to extract the data from your message"
+		message.Text = fmt.Sprintf("I tried to parse your text and I failed. Here why: ```%s```", err)
 		return message, err
 	}
 
+	if len(matches) == 0 {
+		message.Text = "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+		return message, err
+	}
+
+	receivedPullRequest, err := extractPullRequest(matches)
+	if err != nil {
+		message.Text = fmt.Sprintf("Failed to extract pull-request data from your message. Error: ```%s```", err)
+		return message, err
+	}
+
+	pipeline := extractPipeline(matches)
 	if pipeline == "" {
 		message.Text = "Could you please tell me which pipeline I should run?"
 		return message, nil
 	}
 
-	emptyPullRequest := PullRequest{}
-	if receivedPullRequest == emptyPullRequest {
-		message.Text = "Please define the pull-request, because I don't understand for which branch I need to run it"
+	repository := extractRepository(matches)
+	if repository == "" && receivedPullRequest.ID == 0 {
+		message.Text = fmt.Sprintf("For which repository I need to run `%s` pipeline?", pipeline)
 		return message, nil
 	}
 
-	info, err := container.C.BibBucketClient.PullRequestInfo(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, receivedPullRequest.ID)
-	if err != nil {
-		message.Text = "Failed to get the info from the API about selected pull-request"
-		return message, err
-	}
+	log.Logger().Info().
+		Str("workspace", container.C.Config.BitBucketConfig.DefaultWorkspace).
+		Str("main_branch", container.C.Config.BitBucketConfig.DefaultWorkspace).
+		Str("pipeline", pipeline).
+		Interface("pull_request", receivedPullRequest).
+		Str("repository", repository).
+		Msg("Run the pipeline for repository")
 
-	replacer := strings.NewReplacer("\\", "")
-	receivedPullRequest.Title = info.Title
-	receivedPullRequest.Description = replacer.Replace(info.Description)
-	receivedPullRequest.Branch = info.Source.Branch.Name
+	var buildURL = ""
+	if receivedPullRequest.ID != 0 {
+		info, err := container.C.BibBucketClient.PullRequestInfo(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, receivedPullRequest.ID)
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to get the info from the API about selected pull-request and I failed. Here is the reason: ```%s```", err)
+			return message, err
+		}
 
-	response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
-		Target: dto.PipelineTarget{
-			RefName: receivedPullRequest.Branch,
-			RefType: pipelineRefTypeBranch,
-			Selector: dto.PipelineTargetSelector{
-				Type:    pipelineSelectorTypeCustom,
-				Pattern: pipeline,
+		replacer := strings.NewReplacer("\\", "")
+		receivedPullRequest.Title = info.Title
+		receivedPullRequest.Description = replacer.Replace(info.Description)
+		receivedPullRequest.Branch = info.Source.Branch.Name
+
+		response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
+			Target: dto.PipelineTarget{
+				RefName: receivedPullRequest.Branch,
+				RefType: pipelineRefTypeBranch,
+				Selector: dto.PipelineTargetSelector{
+					Type:    pipelineSelectorTypeCustom,
+					Pattern: pipeline,
+				},
+				Type: pipelineTargetTypePipelineRefTarget,
 			},
-			Type: pipelineTargetTypePipelineRefTarget,
-		},
-	})
+		})
 
-	if err != nil {
-		message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for branch `%s` and I failed. Reason: %s", pipeline, receivedPullRequest.Branch, err.Error())
-		return message, err
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for pull-request `#%d` and I failed. Here is the reason: ```%s```", pipeline, receivedPullRequest.ID, err.Error())
+			return message, err
+		}
+
+		buildURL = fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
+		message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
+	} else {
+		response, err := container.C.BibBucketClient.RunPipeline(container.C.Config.BitBucketConfig.DefaultWorkspace, repository, dto.BitBucketRequestRunPipeline{
+			Target: dto.PipelineTarget{
+				RefName: receivedPullRequest.Branch,
+				RefType: pipelineRefTypeBranch,
+				Selector: dto.PipelineTargetSelector{
+					Type:    pipelineSelectorTypeCustom,
+					Pattern: pipeline,
+				},
+				Type: pipelineTargetTypePipelineRefTarget,
+			},
+		})
+
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for pull-request `#%d` and I failed. Here is the reason: ```%s```", pipeline, receivedPullRequest.ID, err.Error())
+			return message, err
+		}
+
+		buildURL = fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", container.C.Config.BitBucketConfig.DefaultWorkspace, repository, response.BuildNumber)
+		message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
 	}
-
-	buildURL := fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
-	message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
 
 	if container.C.Config.BitBucketConfig.ReleaseChannelMessageEnabled && container.C.Config.BitBucketConfig.ReleaseChannel != "" {
 		log.Logger().Debug().
@@ -159,67 +206,60 @@ func (e BbRunPipelineEvent) Update() error {
 	return nil
 }
 
-func extractPullRequestFromSubject(regex string, subject string) (string, PullRequest, error) {
-	re, err := regexp.Compile(regex)
-
-	if err != nil {
-		log.Logger().AddError(err).Msg("Error during the Find Matches operation")
-		return "", PullRequest{}, err
-	}
-
-	match := re.FindStringSubmatch(subject)
-	result := PullRequest{}
-
-	if match == nil {
-		log.Logger().Info().Msg("There is no match")
-		return "", result, nil
-	}
-
-	var pipeline = ""
-	if match[2] == "" {
-		return "", PullRequest{}, errors.New("Pipeline cannot be empty ")
-	}
-
-	pipeline, err = cleanPipelineName(strings.TrimSpace(match[2]))
-	if err != nil {
-		return "", PullRequest{}, err
-	}
-
-	if pipeline == "" {
-		return "", PullRequest{}, errors.New("Pipeline cannot be empty ")
-	}
-
-	if match[3] == "" || match[6] == "" {
-		return "", PullRequest{}, errors.New("Could not parse the pull-request properly ")
-	}
-
-	item := PullRequest{}
-	item.Workspace = match[4]
-	item.RepositorySlug = match[5]
-	item.ID, err = strconv.ParseInt(match[6], 10, 64)
-	if err != nil {
-		log.Logger().AddError(err).
-			Interface("match", match).
-			Msg("Error during pull-request ID parsing")
-		return "", PullRequest{}, err
-	}
-
-	result = item
-
-	return pipeline, result, nil
+func getMainRegex() string {
+	return  fmt.Sprintf("%s.+(%s|%s)", initRegex, pullRequestRegex, repositoryRegex)
 }
 
-func cleanPipelineName(pipeline string) (string, error) {
-	re, err := regexp.Compile(pipelineRegex)
+func compileRegex(subject string) (matches []string, err error) {
+	var mainRegex *regexp.Regexp
+	regexString := getMainRegex()
+	mainRegex, err = regexp.Compile(regexString)
 	if err != nil {
 		log.Logger().AddError(err).Msg("Error during the Find Matches operation")
-		return "", err
+		return matches, err
 	}
 
-	match := re.FindStringSubmatch(pipeline)
-	if match == nil {
-		return "", nil
+	matches = mainRegex.FindStringSubmatch(subject)
+	if matches == nil {
+		log.Logger().Info().Msg("No pull-request found")
+		return matches, nil
 	}
 
-	return match[0], nil
+	return matches, nil
+}
+
+func extractPullRequest(matches []string) (result PullRequest, err error) {
+	if matches[5] == "" || matches[6] == "" || matches[7] == "" {
+		return PullRequest{}, nil
+	}
+
+	result.Workspace = matches[5]
+	result.RepositorySlug = matches[6]
+	result.ID, err = strconv.ParseInt(matches[7], 10, 64)
+	if err != nil {
+		log.Logger().AddError(err).
+			Interface("matches", matches).
+			Msg("Error during pull-request ID parsing")
+		return PullRequest{}, err
+	}
+
+	return result, nil
+}
+
+func extractPipeline(matches []string) string {
+	var pipeline string
+	if matches[2] != "" {
+		pipeline = matches[2]
+	}
+
+	return pipeline
+}
+
+func extractRepository(matches []string) string {
+	var pipeline string
+	if matches[9] != "" {
+		pipeline = matches[9]
+	}
+
+	return pipeline
 }
