@@ -19,7 +19,7 @@ const (
 	EventName = "bitbucket_run_pipeline"
 
 	//EventVersion the version of the event
-	EventVersion         = "1.0.1"
+	EventVersion = "1.0.1"
 
 	initRegex        = `(?im)(start)(?:\s+)([a-z-_]+)`
 	pullRequestRegex = `(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
@@ -207,7 +207,7 @@ func (e BbRunPipelineEvent) Update() error {
 }
 
 func getMainRegex() string {
-	return  fmt.Sprintf("%s.+(%s|%s)", initRegex, pullRequestRegex, repositoryRegex)
+	return fmt.Sprintf("%s.+(%s|%s)", initRegex, pullRequestRegex, repositoryRegex)
 }
 
 func compileRegex(subject string) (matches []string, err error) {

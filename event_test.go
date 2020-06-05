@@ -125,8 +125,8 @@ func TestBbRunPipelineEvent_ExecuteRepositoryInsteadPullRequestLink(t *testing.T
 
 	//We received an error during the pipeline execution
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid:       true,
-		RunPipelineError:     errors.New("Bad pipeline response"),
+		IsTokenInvalid:   true,
+		RunPipelineError: errors.New("Bad pipeline response"),
 	}
 
 	var msg = dto.BaseChatMessage{
@@ -142,8 +142,8 @@ func TestBbRunPipelineEvent_ExecuteRepositoryInsteadPullRequestLink(t *testing.T
 	assert.Equal(t, expectedText, answer.Text)
 
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid:       true,
-		RunPipelineError:     nil,
+		IsTokenInvalid:   true,
+		RunPipelineError: nil,
 	}
 
 	msg = dto.BaseChatMessage{
@@ -159,8 +159,8 @@ func TestBbRunPipelineEvent_ExecuteRepositoryInsteadPullRequestLink(t *testing.T
 	assert.Equal(t, expectedText, answer.Text)
 
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid:       true,
-		RunPipelineError:     nil,
+		IsTokenInvalid:   true,
+		RunPipelineError: nil,
 	}
 
 	msg = dto.BaseChatMessage{
@@ -202,8 +202,8 @@ func TestBbRunPipelineEvent_ExecuteWithCustomText(t *testing.T) {
 	container.C.Config.BitBucketConfig.DefaultWorkspace = "test-workspace"
 
 	container.C.BibBucketClient = &mock.MockedBitBucketClient{
-		IsTokenInvalid:       true,
-		RunPipelineError:     nil,
+		IsTokenInvalid:   true,
+		RunPipelineError: nil,
 	}
 
 	var msg = dto.BaseChatMessage{
