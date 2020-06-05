@@ -105,7 +105,11 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		Str("repository", repository).
 		Msg("Run the pipeline for repository")
 
-	var buildURL = ""
+	var (
+		buildURL       = ""
+		selectedBranch = container.C.Config.BitBucketConfig.DefaultMainBranch
+	)
+
 	if receivedPullRequest.ID != 0 {
 		info, err := container.C.BibBucketClient.PullRequestInfo(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, receivedPullRequest.ID)
 		if err != nil {
@@ -118,6 +122,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		receivedPullRequest.Description = replacer.Replace(info.Description)
 		receivedPullRequest.Branch = info.Source.Branch.Name
 
+		selectedBranch = receivedPullRequest.Branch
 		response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
 			Target: dto.PipelineTarget{
 				RefName: receivedPullRequest.Branch,
@@ -166,7 +171,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 
 		response, statusCode, err := container.C.SlackClient.SendMessage(dto.SlackRequestChatPostMessage{
 			Channel:           container.C.Config.BitBucketConfig.ReleaseChannel,
-			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, receivedPullRequest.Branch, buildURL),
+			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, selectedBranch, buildURL),
 			AsUser:            true,
 			Ts:                time.Time{},
 			DictionaryMessage: dto.DictionaryMessage{},
