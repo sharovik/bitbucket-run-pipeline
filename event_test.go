@@ -74,6 +74,8 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequestAndPipeline(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedText := "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+	expectedText += "\nProbably you don't use the correct message template.\n"
+	expectedText += helpMessage
 	assert.Equal(t, expectedText, answer.Text)
 }
 
@@ -95,6 +97,8 @@ func TestBbRunPipelineEvent_ExecuteNoPipeline(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedText := "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+	expectedText += "\nProbably you don't use the correct message template.\n"
+	expectedText += helpMessage
 	assert.Equal(t, expectedText, answer.Text)
 }
 
@@ -116,6 +120,8 @@ func TestBbRunPipelineEvent_ExecuteNoPullRequest(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedText := "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+	expectedText += "\nProbably you don't use the correct message template.\n"
+	expectedText += helpMessage
 	assert.Equal(t, expectedText, answer.Text)
 }
 
@@ -173,6 +179,8 @@ func TestBbRunPipelineEvent_ExecuteRepositoryInsteadPullRequestLink(t *testing.T
 	assert.NoError(t, err)
 
 	expectedText = "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+	expectedText += "\nProbably you don't use the correct message template.\n"
+	expectedText += helpMessage
 	assert.Equal(t, expectedText, answer.Text)
 }
 
@@ -194,6 +202,8 @@ func TestBbRunPipelineEvent_ExecuteBadPullRequestLink(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedText := "For which repository I need to run `deploy` pipeline?"
+	expectedText += "\nProbably you don't use the correct message template.\n"
+	expectedText += helpMessage
 	assert.Equal(t, expectedText, answer.Text)
 }
 

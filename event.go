@@ -32,6 +32,9 @@ const (
 	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
 	pipelineSelectorTypeCustom          = "custom"
+
+	//The migrations folder, which can be used for event installation or for event update
+	migrationDirectoryPath = "./events/bitbucketrunpipeline/migrations"
 )
 
 //PullRequest the pull-request item
@@ -71,29 +74,39 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 	matches, err := compileRegex(message.OriginalMessage.Text)
 	if err != nil {
 		message.Text = fmt.Sprintf("I tried to parse your text and I failed. Here why: ```%s```", err)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, err
 	}
 
 	if len(matches) == 0 {
 		message.Text = "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, err
 	}
 
 	receivedPullRequest, err := extractPullRequest(matches)
 	if err != nil {
 		message.Text = fmt.Sprintf("Failed to extract pull-request data from your message. Error: ```%s```", err)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, err
 	}
 
 	pipeline := extractPipeline(matches)
 	if pipeline == "" {
 		message.Text = "Could you please tell me which pipeline I should run?"
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, nil
 	}
 
 	repository := extractRepository(matches)
 	if repository == "" && receivedPullRequest.ID == 0 {
 		message.Text = fmt.Sprintf("For which repository I need to run `%s` pipeline?", pipeline)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, nil
 	}
 
@@ -208,7 +221,7 @@ func (e BbRunPipelineEvent) Install() error {
 
 //Update for event update actions
 func (e BbRunPipelineEvent) Update() error {
-	return nil
+	return container.C.Dictionary.RunMigrations(migrationDirectoryPath)
 }
 
 func getMainRegex() string {
