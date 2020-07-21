@@ -8,14 +8,43 @@ This is event for [sharovik/devbot](https://github.com/sharovik/devbot) automati
 - [Prerequisites](#prerequisites)
 
 ## How it works
-Write in PM or tag the bot user with this message
+First you need to define the `pipeline`, after that you need to share the pull-request link or repository
 ```
 Start {you-custom-pipeline-name} for http://pull-request.link
 ```
-The bot will try to run the pipeline for the branch in selected pull-request and will send you the link to the pipeline status page
+In that case the bot will try to get the information about the branch from the pull-request data and will use this information for pipeline run.
+
+Let's imagine you don't have the pull-request, but you have the repository name.
+``` 
+Start {you-custom-pipeline-name} in repository {repository-name}
+```
+For this case, your text is required to have `repository {repository-name}` text.
+
+Also you can use the bot in your custom combination:
+``` 
+Hey, can you start deploy-to-production for repository test?
+```
+In case when you use the repository, the default main branch will be used. Please note, that for proper work of that event you might need to set up these environment variables for your configuration:
+``` 
+#This will be used once only repository is selected instead of the pull-request.
+BITBUCKET_DEFAULT_WORKSPACE=your-workspace
+BITBUCKET_DEFAULT_MAIN_BRANCH=master
+```
 
 ## Prerequisites
 Before you will start use this event please be aware of these steps
+
+### Custom pipeline setup
+In the `bitbucket-pipelines.yml` you must have defined the custom pipelines in the `pipelines` section.
+Here is an example:
+```yaml 
+pipelines:
+    custom:
+        # Name of your pipeline
+        deploy-staging:
+              - step: *build-container
+              - step: *debploy-to-staging
+```
 
 ### Clone into devbot project
 ```

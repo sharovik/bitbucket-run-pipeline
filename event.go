@@ -1,15 +1,17 @@
-package bitbucket_run_pipeline
+package bitbucketrunpipeline
 
 import (
-	"errors"
 	"fmt"
-	"github.com/sharovik/devbot/internal/container"
-	"github.com/sharovik/devbot/internal/dto"
-	"github.com/sharovik/devbot/internal/log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sharovik/devbot/internal/helper"
+
+	"github.com/sharovik/devbot/internal/container"
+	"github.com/sharovik/devbot/internal/dto"
+	"github.com/sharovik/devbot/internal/log"
 )
 
 const (
@@ -17,15 +19,22 @@ const (
 	EventName = "bitbucket_run_pipeline"
 
 	//EventVersion the version of the event
-	EventVersion = "1.0.0"
+	EventVersion = "1.0.1"
 
-	pullRequestsRegex = `(?im)(start)(?:\s?)(.+)(?:\s?)(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
-	pullRequestStateOpen   = "OPEN"
+	initRegex        = `(?im)(start)(?:\s+)([a-z-_]+)`
+	pullRequestRegex = `(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
+	repositoryRegex  = `((?:repository)\s+([a-z-_]+))`
 
-	pipelineRefTypeBranch = "branch"
+	pullRequestStateOpen = "OPEN"
+
+	helpMessage = "Send me message ```start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL}``` to run the pipeline for selected pull-request.\nOr you if you don't have the pull-request, use the repository name. ```start {YOUR_CUSTOM_PIPELINE} repository {YOUR_REPOSITORY_NAME}```. In case when you specify the repository, the default main branch will be used(for example: `master`)."
+
+	pipelineRefTypeBranch               = "branch"
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
-	pipelineSelectorTypeCustom = "custom"
-	pipelineRegex = `(?i)([a-z_-]+)`
+	pipelineSelectorTypeCustom          = "custom"
+
+	//The migrations folder, which can be used for event installation or for event update
+	migrationDirectoryPath = "./events/bitbucketrunpipeline/migrations"
 )
 
 //PullRequest the pull-request item
@@ -43,60 +52,130 @@ type BbRunPipelineEvent struct {
 	EventName string
 }
 
-//Event - object which is ready to use
-var Event = BbRunPipelineEvent{
-	EventName: EventName,
-}
+var (
+	//Event - object which is ready to use
+	Event = BbRunPipelineEvent{
+		EventName: EventName,
+	}
+)
 
 //Execute method which is called by message processor
 func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMessage, error) {
-	pipeline, receivedPullRequest, err := extractPullRequestFromSubject(pullRequestsRegex, message.OriginalMessage.Text)
+	isHelpAnswerTriggered, err := helper.HelpMessageShouldBeTriggered(message.OriginalMessage.Text)
 	if err != nil {
-		message.Text = "Failed to extract the data from your message"
+		log.Logger().Warn().Err(err).Msg("Something went wrong with help message parsing")
+	}
+
+	if isHelpAnswerTriggered {
+		message.Text = helpMessage
+		return message, nil
+	}
+
+	matches, err := compileRegex(message.OriginalMessage.Text)
+	if err != nil {
+		message.Text = fmt.Sprintf("I tried to parse your text and I failed. Here why: ```%s```", err)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, err
 	}
 
+	if len(matches) == 0 {
+		message.Text = "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
+		return message, err
+	}
+
+	receivedPullRequest, err := extractPullRequest(matches)
+	if err != nil {
+		message.Text = fmt.Sprintf("Failed to extract pull-request data from your message. Error: ```%s```", err)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
+		return message, err
+	}
+
+	pipeline := extractPipeline(matches)
 	if pipeline == "" {
 		message.Text = "Could you please tell me which pipeline I should run?"
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, nil
 	}
 
-	emptyPullRequest := PullRequest{}
-	if receivedPullRequest == emptyPullRequest {
-		message.Text = "Please define the pull-request, because I don't understand for which branch I need to run it"
+	repository := extractRepository(matches)
+	if repository == "" && receivedPullRequest.ID == 0 {
+		message.Text = fmt.Sprintf("For which repository I need to run `%s` pipeline?", pipeline)
+		message.Text += "\nProbably you don't use the correct message template.\n"
+		message.Text += helpMessage
 		return message, nil
 	}
 
-	info, err := container.C.BibBucketClient.PullRequestInfo(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, receivedPullRequest.ID)
-	if err != nil {
-		message.Text = "Failed to get the info from the API about selected pull-request"
-		return message, err
-	}
+	log.Logger().Info().
+		Str("workspace", container.C.Config.BitBucketConfig.DefaultWorkspace).
+		Str("main_branch", container.C.Config.BitBucketConfig.DefaultMainBranch).
+		Str("pipeline", pipeline).
+		Interface("pull_request", receivedPullRequest).
+		Str("repository", repository).
+		Msg("Run the pipeline for repository")
 
-	replacer := strings.NewReplacer("\\", "")
-	receivedPullRequest.Title = info.Title
-	receivedPullRequest.Description = replacer.Replace(info.Description)
-	receivedPullRequest.Branch = info.Source.Branch.Name
+	var (
+		buildURL       = ""
+		selectedBranch = container.C.Config.BitBucketConfig.DefaultMainBranch
+	)
 
-	response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
-		Target: dto.PipelineTarget{
-			RefName:  receivedPullRequest.Branch,
-			RefType:  pipelineRefTypeBranch,
-			Selector: dto.PipelineTargetSelector{
-				Type: pipelineSelectorTypeCustom,
-				Pattern: pipeline,
+	if receivedPullRequest.ID != 0 {
+		info, err := container.C.BibBucketClient.PullRequestInfo(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, receivedPullRequest.ID)
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to get the info from the API about selected pull-request and I failed. Here is the reason: ```%s```", err)
+			return message, err
+		}
+
+		replacer := strings.NewReplacer("\\", "")
+		receivedPullRequest.Title = info.Title
+		receivedPullRequest.Description = replacer.Replace(info.Description)
+		receivedPullRequest.Branch = info.Source.Branch.Name
+
+		selectedBranch = receivedPullRequest.Branch
+		response, err := container.C.BibBucketClient.RunPipeline(receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, dto.BitBucketRequestRunPipeline{
+			Target: dto.PipelineTarget{
+				RefName: receivedPullRequest.Branch,
+				RefType: pipelineRefTypeBranch,
+				Selector: dto.PipelineTargetSelector{
+					Type:    pipelineSelectorTypeCustom,
+					Pattern: pipeline,
+				},
+				Type: pipelineTargetTypePipelineRefTarget,
 			},
-			Type:     pipelineTargetTypePipelineRefTarget,
-		},
-	})
+		})
 
-	if err != nil {
-		message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for branch `%s` and I failed. Reason: %s", pipeline, receivedPullRequest.Branch, err.Error())
-		return message, err
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for pull-request `#%d` and I failed. Here is the reason: ```%s```", pipeline, receivedPullRequest.ID, err.Error())
+			return message, err
+		}
+
+		buildURL = fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
+		message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
+	} else {
+		response, err := container.C.BibBucketClient.RunPipeline(container.C.Config.BitBucketConfig.DefaultWorkspace, repository, dto.BitBucketRequestRunPipeline{
+			Target: dto.PipelineTarget{
+				RefName: container.C.Config.BitBucketConfig.DefaultMainBranch,
+				RefType: pipelineRefTypeBranch,
+				Selector: dto.PipelineTargetSelector{
+					Type:    pipelineSelectorTypeCustom,
+					Pattern: pipeline,
+				},
+				Type: pipelineTargetTypePipelineRefTarget,
+			},
+		})
+
+		if err != nil {
+			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for pull-request `#%d` and I failed. Here is the reason: ```%s```", pipeline, receivedPullRequest.ID, err.Error())
+			return message, err
+		}
+
+		buildURL = fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", container.C.Config.BitBucketConfig.DefaultWorkspace, repository, response.BuildNumber)
+		message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildURL)
 	}
-
-	buildUrl := fmt.Sprintf("https://bitbucket.org/%s/%s/addon/pipelines/home#!/results/%d", receivedPullRequest.Workspace, receivedPullRequest.RepositorySlug, response.BuildNumber)
-	message.Text = fmt.Sprintf("Done. Here the link to the build status report: %s", buildUrl)
 
 	if container.C.Config.BitBucketConfig.ReleaseChannelMessageEnabled && container.C.Config.BitBucketConfig.ReleaseChannel != "" {
 		log.Logger().Debug().
@@ -105,7 +184,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 
 		response, statusCode, err := container.C.SlackClient.SendMessage(dto.SlackRequestChatPostMessage{
 			Channel:           container.C.Config.BitBucketConfig.ReleaseChannel,
-			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, receivedPullRequest.Branch, buildUrl),
+			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, selectedBranch, buildURL),
 			AsUser:            true,
 			Ts:                time.Time{},
 			DictionaryMessage: dto.DictionaryMessage{},
@@ -128,123 +207,77 @@ func (e BbRunPipelineEvent) Install() error {
 	log.Logger().Debug().
 		Str("event_name", EventName).
 		Str("event_version", EventVersion).
-		Msg("Start event Install")
-	eventID, err := container.C.Dictionary.FindEventByAlias(EventName)
-	if err != nil {
-		log.Logger().AddError(err).Msg("Error during FindEventBy method execution")
-		return err
-	}
+		Msg("Triggered event installation")
 
-	if eventID == 0 {
-		log.Logger().Info().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Msg("Event wasn't installed. Trying to install it")
-
-		eventID, err := container.C.Dictionary.InsertEvent(EventName, EventVersion)
-		if err != nil {
-			log.Logger().AddError(err).Msg("Error during FindEventBy method execution")
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("event_id", eventID).
-			Msg("Event installed")
-
-		scenarioID, err := container.C.Dictionary.InsertScenario(EventName, eventID)
-		if err != nil {
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("scenario_id", scenarioID).
-			Msg("Scenario installed")
-
-		questionID, err := container.C.Dictionary.InsertQuestion("start", "Ok, give me a min", scenarioID, "(?i)(start)", "")
-		if err != nil {
-			return err
-		}
-
-		log.Logger().Debug().
-			Str("event_name", EventName).
-			Str("event_version", EventVersion).
-			Int64("question_id", questionID).
-			Msg("Question installed")
-	}
-
-	return nil
+	return container.C.Dictionary.InstallEvent(
+		EventName,           //We specify the event name which will be used for scenario generation
+		EventVersion,        //This will be set during the event creation
+		"start",             //Actual question, which system will wait and which will trigger our event
+		"Ok, give me a min", //Answer which will be used by the bot
+		"(?i)(start)",       //Optional field. This is regular expression which can be used for question parsing.
+		"",                  //Optional field. This is a regex group and it can be used for parsing the match group from the regexp result
+	)
 }
 
 //Update for event update actions
 func (e BbRunPipelineEvent) Update() error {
-	return nil
+	return container.C.Dictionary.RunMigrations(migrationDirectoryPath)
 }
 
-func extractPullRequestFromSubject(regex string, subject string) (string, PullRequest, error) {
-	re, err := regexp.Compile(regex)
+func getMainRegex() string {
+	return fmt.Sprintf("%s.+(%s|%s)", initRegex, pullRequestRegex, repositoryRegex)
+}
 
+func compileRegex(subject string) (matches []string, err error) {
+	var mainRegex *regexp.Regexp
+	regexString := getMainRegex()
+	mainRegex, err = regexp.Compile(regexString)
 	if err != nil {
 		log.Logger().AddError(err).Msg("Error during the Find Matches operation")
-		return "", PullRequest{}, err
+		return matches, err
 	}
 
-	match := re.FindStringSubmatch(subject)
-	result := PullRequest{}
-
-	if match == nil {
-		log.Logger().Info().Msg("There is no match")
-		return "", result, nil
+	matches = mainRegex.FindStringSubmatch(subject)
+	if matches == nil {
+		log.Logger().Info().Msg("No pull-request found")
+		return matches, nil
 	}
 
-	var pipeline = ""
-	if match[2] == "" {
-		return "", PullRequest{}, errors.New("Pipeline cannot be empty ")
+	return matches, nil
+}
+
+func extractPullRequest(matches []string) (result PullRequest, err error) {
+	if matches[5] == "" || matches[6] == "" || matches[7] == "" {
+		return PullRequest{}, nil
 	}
 
-	pipeline, err = cleanPipelineName(strings.TrimSpace(match[2]))
-	if err != nil {
-		return "", PullRequest{}, err
-	}
-
-	if pipeline == "" {
-		return "", PullRequest{}, errors.New("Pipeline cannot be empty ")
-	}
-
-	if match[3] == "" || match[6] == "" {
-		return "", PullRequest{}, errors.New("Could not parse the pull-request properly ")
-	}
-
-	item := PullRequest{}
-	item.Workspace = match[4]
-	item.RepositorySlug = match[5]
-	item.ID, err = strconv.ParseInt(match[6], 10, 64)
+	result.Workspace = matches[5]
+	result.RepositorySlug = matches[6]
+	result.ID, err = strconv.ParseInt(matches[7], 10, 64)
 	if err != nil {
 		log.Logger().AddError(err).
-			Interface("match", match).
+			Interface("matches", matches).
 			Msg("Error during pull-request ID parsing")
-		return "", PullRequest{}, err
+		return PullRequest{}, err
 	}
 
-	result = item
-
-	return pipeline, result, nil
+	return result, nil
 }
 
-func cleanPipelineName(pipeline string) (string, error) {
-	re, err := regexp.Compile(pipelineRegex)
-	if err != nil {
-		log.Logger().AddError(err).Msg("Error during the Find Matches operation")
-		return "", err
+func extractPipeline(matches []string) string {
+	var pipeline string
+	if matches[2] != "" {
+		pipeline = matches[2]
 	}
 
-	match := re.FindStringSubmatch(pipeline)
-	if match == nil {
-		return "", nil
+	return pipeline
+}
+
+func extractRepository(matches []string) string {
+	var pipeline string
+	if matches[9] != "" {
+		pipeline = matches[9]
 	}
 
-	return match[0], nil
+	return pipeline
 }
