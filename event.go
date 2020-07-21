@@ -182,7 +182,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 			Str("channel", container.C.Config.BitBucketConfig.ReleaseChannel).
 			Msg("Send release-confirmation message")
 
-		response, statusCode, err := container.C.SlackClient.SendMessage(dto.SlackRequestChatPostMessage{
+		response, statusCode, err := container.C.MessageClient.SendMessage(dto.SlackRequestChatPostMessage{
 			Channel:           container.C.Config.BitBucketConfig.ReleaseChannel,
 			Text:              fmt.Sprintf("The user <@%s> asked me to run `%s` pipeline for a branch `%s`. Here the link to build-report: %s", message.OriginalMessage.User, pipeline, selectedBranch, buildURL),
 			AsUser:            true,
