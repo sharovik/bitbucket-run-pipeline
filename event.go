@@ -2,8 +2,8 @@ package bitbucketrunpipeline
 
 import (
 	"fmt"
+	"github.com/sharovik/devbot/internal/service/base"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +19,7 @@ const (
 	EventName = "bitbucket_run_pipeline"
 
 	//EventVersion the version of the event
-	EventVersion = "1.0.1"
+	EventVersion = "1.1.0"
 
 	initRegex        = `(?im)(start)(?:\s+)([a-z-_]+)`
 	pullRequestRegex = `(https:\/\/bitbucket.org\/(?P<workspace>.+)\/(?P<repository_slug>.+)\/pull-requests\/(?P<pull_request_id>\d+)?)`
@@ -33,8 +33,12 @@ const (
 	pipelineTargetTypePipelineRefTarget = "pipeline_ref_target"
 	pipelineSelectorTypeCustom          = "custom"
 
-	//The migrations folder, which can be used for event installation or for event update
-	migrationDirectoryPath = "./events/bitbucketrunpipeline/migrations"
+	defaultScenario              = "start"
+	runPipelineQuestionsScenario = "run pipeline"
+	defaultScenarioAnswer = "Ok, give me a min"
+
+	stepWhatDestination = "What `pull-request` or `repository` should I use?"
+	stepWhatPipeline = "What pipeline should I run?"
 )
 
 //PullRequest the pull-request item
@@ -71,43 +75,69 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		return message, nil
 	}
 
-	matches, err := compileRegex(message.OriginalMessage.Text)
+	//First let's prepare the scenarios for identification, which one is called
+	defaultScenarioDM, askingScenarioDM, err := initScenarios()
 	if err != nil {
-		message.Text = fmt.Sprintf("I tried to parse your text and I failed. Here why: ```%s```", err)
-		message.Text += "\nProbably you don't use the correct message template.\n"
-		message.Text += helpMessage
+		message.Text += fmt.Sprintf("\nFailed to get available scenarios. Here why: `%s`", err)
+		base.DeleteConversation(message.Channel)
 		return message, err
 	}
 
-	if len(matches) == 0 {
-		message.Text = "Sorry, please specify pipeline and pull-request/repository, because I cannot understand what to do."
-		message.Text += "\nProbably you don't use the correct message template.\n"
-		message.Text += helpMessage
-		return message, err
-	}
+	currentConversation := base.GetConversation(message.Channel)
 
-	receivedPullRequest, err := extractPullRequest(matches)
-	if err != nil {
-		message.Text = fmt.Sprintf("Failed to extract pull-request data from your message. Error: ```%s```", err)
-		message.Text += "\nProbably you don't use the correct message template.\n"
-		message.Text += helpMessage
-		return message, err
-	}
+	pipeline := ""
+	repository := ""
+	receivedPullRequest := PullRequest{}
+	if currentConversation.ScenarioID != int64(0) {
+		switch currentConversation.ScenarioID {
+		case defaultScenarioDM.ScenarioID:
+			receivedPullRequest, pipeline, repository, err = extractInfoFromString(message.OriginalMessage.Text)
+			if err != nil {
+				message.Text = fmt.Sprintf("Failed to extract data from your message. Error: ```%s```", err)
+				message.Text += "\nProbably you don't use the correct message template.\n"
+				message.Text += helpMessage
+				base.DeleteConversation(message.Channel)
+				return message, err
+			}
+			break
+		case askingScenarioDM.ScenarioID:
+			if len(currentConversation.Variables) != 2 {
+				message.Text += "\nFor some reason I received not all answers. Please repeat, what do you want?"
+				base.DeleteConversation(message.Channel)
+				return message, nil
+			}
 
-	pipeline := extractPipeline(matches)
-	if pipeline == "" {
-		message.Text = "Could you please tell me which pipeline I should run?"
-		message.Text += "\nProbably you don't use the correct message template.\n"
-		message.Text += helpMessage
-		return message, nil
-	}
+			receivedPullRequest, pipeline, repository, err = extractInfoFromConversationVariables(currentConversation.Variables)
+			if err != nil {
+				message.Text += "\nHm.. For some reason I cannot parse received information. It looks like some of the variables does not have proper value.\n"
+				message.Text += "\nPlease check the message template using `start --help`"
+				base.DeleteConversation(message.Channel)
+				return message, err
+			}
+			break
+		}
+	} else {
+		receivedPullRequest, pipeline, repository, err = extractInfoFromString(message.OriginalMessage.Text)
+		if err != nil {
+			message.Text = "Hmm.. I don't understand what and where need to execute. Probably you didn't used the correct message template. Ask me `start --help` for more info.\n"
+			message.Text += "Anyway, I will ask you now couple of questions.\n"
+			message.Text += fmt.Sprintf("\n\n%s", stepWhatDestination)
 
-	repository := extractRepository(matches)
-	if repository == "" && receivedPullRequest.ID == 0 {
-		message.Text = fmt.Sprintf("For which repository I need to run `%s` pipeline?", pipeline)
-		message.Text += "\nProbably you don't use the correct message template.\n"
-		message.Text += helpMessage
-		return message, nil
+			base.DeleteConversation(message.Channel)
+			base.AddConversation(message.Channel, askingScenarioDM.QuestionID, dto.BaseChatMessage{
+				Channel:           message.Channel,
+				Text:              stepWhatDestination,
+				AsUser:            false,
+				Ts:                time.Now(),
+				DictionaryMessage: askingScenarioDM,
+				OriginalMessage:   dto.BaseOriginalMessage{
+					Text:  message.OriginalMessage.Text,
+					User:  message.OriginalMessage.User,
+					Files: message.OriginalMessage.Files,
+				},
+			}, "")
+			return message, nil
+		}
 	}
 
 	log.Logger().Info().
@@ -169,7 +199,7 @@ func (e BbRunPipelineEvent) Execute(message dto.BaseChatMessage) (dto.BaseChatMe
 		})
 
 		if err != nil {
-			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for pull-request `#%d` and I failed. Here is the reason: ```%s```", pipeline, receivedPullRequest.ID, err.Error())
+			message.Text = fmt.Sprintf("I tried to run selected pipeline `%s` for `%s` and I failed. Here is the reason: ```%s```", pipeline, repository, err.Error())
 			return message, err
 		}
 
@@ -209,19 +239,26 @@ func (e BbRunPipelineEvent) Install() error {
 		Str("event_version", EventVersion).
 		Msg("Triggered event installation")
 
-	return container.C.Dictionary.InstallEvent(
+	err := container.C.Dictionary.InstallEvent(
 		EventName,           //We specify the event name which will be used for scenario generation
 		EventVersion,        //This will be set during the event creation
-		"start",             //Actual question, which system will wait and which will trigger our event
-		"Ok, give me a min", //Answer which will be used by the bot
+		defaultScenario,             //Actual question, which system will wait and which will trigger our event
+		defaultScenarioAnswer, //Answer which will be used by the bot
 		"(?i)(start)",       //Optional field. This is regular expression which can be used for question parsing.
 		"",                  //Optional field. This is a regex group and it can be used for parsing the match group from the regexp result
 	)
+
+	if err != nil {
+		return err
+	}
+
+	return installAskingScenario()
 }
 
 //Update for event update actions
 func (e BbRunPipelineEvent) Update() error {
-	return container.C.Dictionary.RunMigrations(migrationDirectoryPath)
+	container.C.MigrationService.SetMigration(InstallationAskingScenario{})
+	return container.C.MigrationService.RunMigrations()
 }
 
 func getMainRegex() string {
@@ -244,40 +281,4 @@ func compileRegex(subject string) (matches []string, err error) {
 	}
 
 	return matches, nil
-}
-
-func extractPullRequest(matches []string) (result PullRequest, err error) {
-	if matches[5] == "" || matches[6] == "" || matches[7] == "" {
-		return PullRequest{}, nil
-	}
-
-	result.Workspace = matches[5]
-	result.RepositorySlug = matches[6]
-	result.ID, err = strconv.ParseInt(matches[7], 10, 64)
-	if err != nil {
-		log.Logger().AddError(err).
-			Interface("matches", matches).
-			Msg("Error during pull-request ID parsing")
-		return PullRequest{}, err
-	}
-
-	return result, nil
-}
-
-func extractPipeline(matches []string) string {
-	var pipeline string
-	if matches[2] != "" {
-		pipeline = matches[2]
-	}
-
-	return pipeline
-}
-
-func extractRepository(matches []string) string {
-	var pipeline string
-	if matches[9] != "" {
-		pipeline = matches[9]
-	}
-
-	return pipeline
 }
