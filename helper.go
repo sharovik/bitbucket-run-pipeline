@@ -38,9 +38,9 @@ func extractPullRequestFromVariable(text string) (pr PullRequest, err error) {
 		return pr, nil
 	}
 
-	pr.Workspace = matches[5]
-	pr.RepositorySlug = matches[6]
-	pr.ID, err = strconv.ParseInt(matches[7], 10, 64)
+	pr.Workspace = matches[2]
+	pr.RepositorySlug = matches[3]
+	pr.ID, err = strconv.ParseInt(matches[4], 10, 64)
 	if err != nil {
 		return pr, err
 	}
