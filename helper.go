@@ -1,126 +1,81 @@
 package bitbucketrunpipeline
 
 import (
-	"fmt"
+	"github.com/pkg/errors"
+	"github.com/sharovik/devbot/internal/dto"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
-func extractInfoFromConversationVariables(variables []string) (receivedPullRequest PullRequest, pipeline string, repository string, err error) {
-	receivedPullRequest, err = extractPullRequestFromVariable(variables[0])
+func extractInfoFromConversationVariables(message dto.BaseChatMessage) (pullRequests []PullRequest, pipeline string, repositories []string, err error) {
+	pipeline = getFromVariable(message, stepWhatPipeline)
+	if "" == pipeline {
+		return pullRequests, pipeline, repositories, errors.New("Invalid pipeline value received.")
+	}
+
+	target := getFromVariable(message, stepWhatDestination)
+	if "" == target {
+		return pullRequests, pipeline, repositories, errors.New("Invalid target value received.")
+	}
+
+	pullRequests, err = findAllPullRequestsInText(target)
 	if err != nil {
-		return receivedPullRequest, pipeline, repository, err
+		return pullRequests, pipeline, repositories, errors.Wrap(err, "Failed to parse pull-requests from the target string")
 	}
 
-	repository, err = extractRepositoryFromVariable(variables[0])
+	repositories, err = extractRepositoriesFromString(target)
 	if err != nil {
-		return receivedPullRequest, pipeline, repository, err
+		return pullRequests, pipeline, repositories, err
 	}
 
-	if repository == "" {
-		repository = strings.TrimSpace(variables[0])
+	return pullRequests, pipeline, repositories, nil
+}
+
+func extractInfoFromString(text string) (receivedPullRequests []PullRequest, pipeline string, repositories []string, err error) {
+	receivedPullRequests, err = findAllPullRequestsInText(text)
+	if err != nil {
+		return nil, "", nil, errors.Wrap(err, "Failed to parse pull-requests from the message")
 	}
 
-	pipeline = strings.TrimSpace(variables[1])
+	pipeline, err = extractPipeline(text)
+	repositories, err = extractRepositoriesFromString(text)
+	if err != nil {
+		return nil, "", nil, errors.Wrap(err, "Failed to parse repositories from the string")
+	}
 
 	return
 }
 
-func extractPullRequestFromVariable(text string) (pr PullRequest, err error) {
-	regex, err := regexp.Compile(fmt.Sprintf("(?i)%s", pullRequestRegex))
+func extractRepositoriesFromString(text string) (repositories []string, err error) {
+	regex, err := regexp.Compile(repositoryRegex)
 	if err != nil {
-		return pr, err
+		return repositories, errors.Wrap(err, "Failed to create regexp object for repositories parse.")
 	}
 
-	matches := regex.FindStringSubmatch(text)
-	if matches == nil {
-		return pr, nil
+	matches := regex.FindAllStringSubmatch(text, -1)
+	for _, name := range matches {
+		if name[2] == "" {
+			continue
+		}
+
+		repositories = append(repositories, strings.TrimSpace(name[2]))
 	}
 
-	pr.Workspace = matches[2]
-	pr.RepositorySlug = matches[3]
-	pr.ID, err = strconv.ParseInt(matches[4], 10, 64)
-	if err != nil {
-		return pr, err
-	}
-
-	return pr, nil
-}
-
-func extractRepositoryFromVariable(text string) (repository string, err error) {
-	regex, err := regexp.Compile(fmt.Sprintf("(?i)%s", repositoryRegex))
-	if err != nil {
-		return
-	}
-
-	matches := regex.FindStringSubmatch(text)
-	if matches == nil {
-		return repository, nil
-	}
-
-	repository = matches[2]
 	return
 }
 
-func extractInfoFromString(text string) (receivedPullRequest PullRequest, pipeline string, repository string, err error) {
-	matches, err := compileRegex(text)
+func extractPipeline(text string) (pipeline string, err error) {
+	regex, err := regexp.Compile(pipelineRegex)
 	if err != nil {
-		return
+		return pipeline, errors.Wrap(err, "Failed to create regexp object to parse pipeline.")
 	}
 
+	matches := regex.FindStringSubmatch(text)
 	if len(matches) == 0 {
-		err = fmt.Errorf("Failed to parse variables from the string ")
-		return
+		return "", nil
 	}
 
-	receivedPullRequest, err = extractPullRequest(matches)
-	if err != nil {
-		return
-	}
+	pipeline = matches[1]
 
-	pipeline = extractPipeline(matches)
-	if pipeline == "" {
-		return
-	}
-
-	repository = extractRepository(matches)
-	if repository == "" && receivedPullRequest.ID == 0 {
-		return
-	}
-
-	return
-}
-
-func extractPullRequest(matches []string) (result PullRequest, err error) {
-	if matches[5] == "" || matches[6] == "" || matches[7] == "" {
-		return PullRequest{}, nil
-	}
-
-	result.Workspace = matches[5]
-	result.RepositorySlug = matches[6]
-	result.ID, err = strconv.ParseInt(matches[7], 10, 64)
-	if err != nil {
-		return PullRequest{}, err
-	}
-
-	return result, nil
-}
-
-func extractPipeline(matches []string) string {
-	var pipeline string
-	if matches[2] != "" {
-		pipeline = matches[2]
-	}
-
-	return pipeline
-}
-
-func extractRepository(matches []string) string {
-	var pipeline string
-	if matches[9] != "" {
-		pipeline = matches[9]
-	}
-
-	return pipeline
+	return pipeline, nil
 }

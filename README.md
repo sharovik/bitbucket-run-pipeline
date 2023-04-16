@@ -10,21 +10,15 @@ This is event for [sharovik/devbot](https://github.com/sharovik/devbot) automati
 ## How it works
 First you need to define the `pipeline`, after that you need to share the pull-request link or repository
 ```
-Start {you-custom-pipeline-name} for http://pull-request.link
+start {YOUR_CUSTOM_PIPELINE} {BITBUCKET_PULL_REQUEST_URL_1} {BITBUCKET_PULL_REQUEST_URL_2} ...{BITBUCKET_PULL_REQUEST_URL_N}``` to run the pipeline for selected pull-request.
 ```
-In that case the bot will try to get the information about the branch from the pull-request data and will use this information for pipeline run.
+You can also trigger pipeline for one or more repositories, just write 
+```
+start {YOUR_CUSTOM_PIPELINE} repository {YOUR_REPOSITORY_NAME}
+```
+In case when you specify the repository, the default main branch will be used(for example: `master`).
 
-Let's imagine you don't have the pull-request, but you have the repository name.
-``` 
-Start {you-custom-pipeline-name} in repository {repository-name}
-```
-For this case, your text is required to have `repository {repository-name}` text.
-
-Also you can use the bot in your custom combination:
-``` 
-Hey, can you start deploy-to-production for repository test?
-```
-In case when you use the repository, the default main branch will be used. Please note, that for proper work of that event you might need to set up these environment variables for your configuration:
+Please note, that for proper work of that event you might need to set up these environment variables for your configuration:
 ``` 
 #This will be used once only repository is selected instead of the pull-request.
 BITBUCKET_DEFAULT_WORKSPACE=your-workspace
@@ -59,7 +53,11 @@ import "github.com/sharovik/devbot/events/bitbucketrunpipeline"
 ```
 3. add this event into `defined-events.go` file to the defined events map object
 ``` 
-DefinedEvents.Events[bitbucketrunpipeline.EventName] = bitbucketrunpipeline.Event
+// DefinedEvents variable contains the list of events, which will be installed/used by the devbot
+var DefinedEvents = []event.DefinedEventInterface{
+    //...
+	bitbucketrunpipeline.Event,
+}
 ```
 
 ### Prepare environment variables in your .env
