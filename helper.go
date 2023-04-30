@@ -9,12 +9,12 @@ import (
 
 func extractInfoFromConversationVariables(message dto.BaseChatMessage) (pullRequests []PullRequest, pipeline string, repositories []string, err error) {
 	pipeline = getFromVariable(message, stepWhatPipeline)
-	if "" == pipeline {
+	if pipeline == "" {
 		return pullRequests, pipeline, repositories, errors.New("Invalid pipeline value received.")
 	}
 
 	target := getFromVariable(message, stepWhatDestination)
-	if "" == target {
+	if target == "" {
 		return pullRequests, pipeline, repositories, errors.New("Invalid target value received.")
 	}
 
@@ -38,6 +38,9 @@ func extractInfoFromString(text string) (receivedPullRequests []PullRequest, pip
 	}
 
 	pipeline, err = extractPipeline(text)
+	if err != nil {
+		return nil, "", nil, errors.Wrap(err, "Failed to extract pipeline from the string")
+	}
 	repositories, err = extractRepositoriesFromString(text)
 	if err != nil {
 		return nil, "", nil, errors.Wrap(err, "Failed to parse repositories from the string")
